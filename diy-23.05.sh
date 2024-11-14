@@ -47,6 +47,7 @@ git_sparse_clone master https://github.com/vernesong/OpenClash luci-app-openclas
 git clone --depth=1 https://github.com/kiddin9/luci-theme-edge package/luci-theme-edge
 git clone --depth=1 https://github.com/jerrykuku/luci-theme-argon package/luci-theme-argon
 git clone --depth=1 https://github.com/jerrykuku/luci-app-argon-config package/luci-app-argon-config
+git_sparse_clone main https://github.com/haiibo/packages luci-theme-opentomcat
 
 # 更改 Argon 主题背景
 # cp -f $GITHUB_WORKSPACE/images/bg1.jpg package/luci-theme-argon/htdocs/luci-static/argon/img/bg1.jpg
