@@ -19,17 +19,17 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     if: github.event.repository.owner.id == github.event.sender.id || ! github.event.sender.id
-    name: build ${{ matrix.target }} ${{ matrix.branch }}
+    name: build ${{ matrix.target }} ${{ matrix.openwrt }}
     strategy:
       fail-fast: false
       matrix:
         target: [armv8]
-        branch: [18.06, 23.05]
+        openwrt: [lede, immortalwrt]
 
     env:
       CONFIG_FILE: configs/${{ matrix.target }}.config
-      DIY_SCRIPT: diy-${{ matrix.branch }}.sh
-      RELEASE_TAG: ${{ matrix.target }}-${{ matrix.branch }}
+      DIY_SCRIPT: diy-${{ matrix.openwrt }}.sh
+      RELEASE_TAG: ${{ matrix.target }}-${{ matrix.openwrt }}
 
     steps:
     - name: Checkout
@@ -37,11 +37,11 @@ jobs:
 
     - name: Set Compile Source Code
       run: |
-        if [ ${{ matrix.branch }} == '18.06' ]; then
+        if [ ${{ matrix.openwrt }} == 'lede' ]; then
           echo "REPO_URL=https://github.com/coolsnowwolf/lede" >> $GITHUB_ENV
           echo "REPO_BRANCH=master" >> $GITHUB_ENV
           echo -e "CONFIG_TARGET_armvirt=y\nCONFIG_TARGET_armvirt_64=y" >> $CONFIG_FILE
-        elif [ ${{ matrix.branch }} == '23.05' ]; then
+        elif [ ${{ matrix.openwrt }} == 'immortalwrt' ]; then
           echo "REPO_URL=https://github.com/immortalwrt/immortalwrt" >> $GITHUB_ENV
           echo "REPO_BRANCH=openwrt-24.10" >> $GITHUB_ENV
           echo -e "CONFIG_TARGET_armsr=y\nCONFIG_TARGET_armsr_armv8=y" >> $CONFIG_FILE
