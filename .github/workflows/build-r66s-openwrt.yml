@@ -1,95 +1,144 @@
+# 工作流名称：构建 R66S OpenWrt 固件
 name: build r66s openwrt
 
+# 触发条件
 on:
+  # 支持手动触发
   workflow_dispatch:
+  # 定时触发：每天 14:00 UTC 执行
   schedule:
     - cron: 0 14 * * *
+  # 当有人 star 仓库时触发
   watch:
     types: started
 
+# 全局环境变量
 env:
+  # Clash 内核架构
   CLASH_KERNEL: arm64
+  # 是否缓存编译工具链
   CACHE_TOOLCHAIN: true
+  # 是否上传 bin 目录
   UPLOAD_BIN_DIR: false
+  # 是否上传构建产物
   UPLOAD_ARTIFACT: false
+  # 是否发布 Release
   UPLOAD_RELEASE: true
+  # 时区设置
   TZ: Asia/Shanghai
 
+# 工作流任务
 jobs:
+  # 构建任务
   build:
+    # 运行环境：Ubuntu 22.04
     runs-on: ubuntu-22.04
+    # 仅允许仓库所有者触发，或者是首次触发
     if: github.event.repository.owner.id == github.event.sender.id || ! github.event.sender.id
+    # 构建任务名称，显示目标架构和 OpenWrt 版本
     name: build ${{ matrix.target }} ${{ matrix.openwrt }}
+    # 构建策略
     strategy:
+      # 允许部分任务失败
       fail-fast: false
+      # 构建矩阵：不同目标和 OpenWrt 版本组合
       matrix:
         target: [armv8]
         openwrt: [lede, immortalwrt]
 
+    # 任务级环境变量
     env:
+      # 配置文件路径
       CONFIG_FILE: configs/${{ matrix.target }}.config
+      # 自定义脚本路径
       DIY_SCRIPT: diy-${{ matrix.openwrt }}.sh
+      # Release 标签
       RELEASE_TAG: ${{ matrix.target }}-${{ matrix.openwrt }}
 
     steps:
+    # 检出代码
     - name: Checkout
       uses: actions/checkout@main
 
+    # 设置编译源码相关变量
     - name: Set Compile Source Code
       run: |
+        # 根据不同的 OpenWrt 版本设置对应的仓库信息
         if [ ${{ matrix.openwrt }} == 'lede' ]; then
+          # Lean 的 OpenWrt 源码
           echo "REPO_URL=https://github.com/coolsnowwolf/lede" >> $GITHUB_ENV
           echo "REPO_BRANCH=master" >> $GITHUB_ENV
+          # 设置目标架构为 arm64 虚拟机
           echo -e "CONFIG_TARGET_armvirt=y\nCONFIG_TARGET_armvirt_64=y" >> $CONFIG_FILE
         elif [ ${{ matrix.openwrt }} == 'immortalwrt' ]; then
+          # ImmortalWrt 源码
           echo "REPO_URL=https://github.com/immortalwrt/immortalwrt" >> $GITHUB_ENV
           echo "REPO_BRANCH=openwrt-24.10" >> $GITHUB_ENV
+          # 设置目标架构为 armsr
           echo -e "CONFIG_TARGET_armsr=y\nCONFIG_TARGET_armsr_armv8=y" >> $CONFIG_FILE
         fi
 
+    # 检查服务器性能
     - name: Check Server Performance
       run: |
+        # 显示性能警告信息
         echo "警告⚠"
         echo "分配的服务器性能有限，若选择的插件过多，务必注意CPU性能！"
         echo -e "已知CPU型号(降序): 7763，8370C，8272CL，8171M，E5-2673\n"
+        # 显示 CPU 信息
         echo "==========================CPU信息=========================="
         echo "CPU物理数量: $(cat /proc/cpuinfo | grep "physical id" | sort | uniq | wc -l)"
         echo "CPU线程数量: $(nproc)"
         echo -e "CPU型号信息:$(cat /proc/cpuinfo | grep -m1 name | awk -F: '{print $2}')\n"
+        # 显示内存信息
         echo "==========================内存信息=========================="
         echo "已安装内存详细信息:"
         echo -e "$(sudo lshw -short -C memory | grep GiB)\n"
+        # 显示硬盘信息
         echo "==========================硬盘信息=========================="
         echo "硬盘数量: $(ls /dev/sd* | grep -v [1-9] | wc -l)" && df -hT
 
+    # 初始化编译环境
     - name: Initialization Environment
       env:
+        # 设置无交互模式
         DEBIAN_FRONTEND: noninteractive
       run: |
+        # 清理 Docker 镜像
         docker rmi $(docker images -q)
+        # 删除不需要的软件和目录
         sudo rm -rf /usr/share/dotnet /etc/apt/sources.list.d /usr/local/lib/android $AGENT_TOOLSDIRECTORY
+        # 关闭并删除交换文件
         sudo swapoff -a && sudo rm -f /swapfile /mnt/swapfile
+        # 卸载不需要的软件包
         sudo -E apt-get -y purge azure-cli ghc* zulu* llvm* firefox google* dotnet* powershell openjdk* mongodb* moby* || true
+        # 更新系统并安装必要的软件包
         sudo -E apt-get -y update
         sudo -E apt-get -y install clang rename $(curl -fsSL is.gd/depends_ubuntu_2204)
         sudo -E systemctl daemon-reload
         sudo -E apt-get -y autoremove --purge
         sudo -E apt-get -y clean
+        # 设置时区
         sudo timedatectl set-timezone "$TZ"
 
+    # 合并磁盘空间
     - name: Combine Disks
       run: |
+        # 计算 /mnt 分区可用空间并创建镜像文件
         MNT_SIZE=$((($(df --block-size=1024 --output=avail /mnt | tail -1) - 1024*1024*1) * 1024))
         sudo fallocate -l $MNT_SIZE /mnt/mnt.img
         MNT_NAME=$(sudo losetup -Pf --show /mnt/mnt.img)
         sudo pvcreate -f $MNT_NAME
+        # 计算根分区可用空间并创建镜像文件
         ROOT_SIZE=$((($(df --block-size=1024 --output=avail / | tail -1) - 1024*1024*4) * 1024))
         sudo fallocate -l $ROOT_SIZE /root.img
         ROOT_NAME=$(sudo losetup -Pf --show /root.img)
         sudo pvcreate -f $ROOT_NAME
+        # 创建卷组和逻辑卷
         sudo vgcreate actions $MNT_NAME $ROOT_NAME
         sudo lvcreate -n disk -l 100%FREE actions
         LV_NAME=$(sudo lvscan | awk -F "'" '{print $2}')
+        # 格式化为 btrfs 文件系统并挂载
         sudo mkfs.btrfs -L combinedisk $LV_NAME
         sudo mkdir -p /workdir
         sudo mount -o compress=zstd $LV_NAME /workdir
@@ -103,30 +152,41 @@ jobs:
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
         cd openwrt
         echo "OPENWRT_PATH=$PWD" >> $GITHUB_ENV
+        # 获取最后一次提交的作者信息
         COMMIT_AUTHOR=$(git show -s --date=short --format="作者: %an")
         echo "COMMIT_AUTHOR=$COMMIT_AUTHOR" >> $GITHUB_ENV
+        # 获取最后一次提交的时间
         COMMIT_DATE=$(git show -s --date=short --format="时间: %ci")
         echo "COMMIT_DATE=$COMMIT_DATE" >> $GITHUB_ENV
+        # 获取最后一次提交的描述
         COMMIT_MESSAGE=$(git show -s --date=short --format="内容: %s")
         echo "COMMIT_MESSAGE=$COMMIT_MESSAGE" >> $GITHUB_ENV
+        # 获取最后一次提交的哈希值
         COMMIT_HASH=$(git show -s --date=short --format="hash: %H")
         echo "COMMIT_HASH=$COMMIT_HASH" >> $GITHUB_ENV
 
+    # 生成编译相关变量
     - name: Generate Variables
       run: |
+        # 复制配置文件并生成默认配置
         cp $CONFIG_FILE $OPENWRT_PATH/.config
         cd $OPENWRT_PATH
         make defconfig > /dev/null 2>&1
+        # 获取源码仓库名称
         SOURCE_REPO=$(echo $REPO_URL | awk -F '/' '{print $(NF)}')
         echo "SOURCE_REPO=$SOURCE_REPO" >> $GITHUB_ENV
+        # 获取目标设备平台
         DEVICE_TARGET=$(cat .config | grep CONFIG_TARGET_BOARD | awk -F '"' '{print $2}')
         echo "DEVICE_TARGET=$DEVICE_TARGET" >> $GITHUB_ENV
+        # 获取目标设备子平台
         DEVICE_SUBTARGET=$(cat .config | grep CONFIG_TARGET_SUBTARGET | awk -F '"' '{print $2}')
         echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET" >> $GITHUB_ENV
+        # 获取内核版本信息
         KERNEL=$(grep -oP 'KERNEL_PATCHVER:=\K[^ ]+' target/linux/$DEVICE_TARGET/Makefile)
         KERNEL_VERSION=$(sed -n 2p include/kernel-$KERNEL | awk -F '-' '{print $2}' | awk -F ' ' '{print $1}')
         echo "KERNEL_VERSION=$KERNEL_VERSION" >> $GITHUB_ENV
 
+    # 缓存编译工具链
     - name: Cache Toolchain
       if: env.CACHE_TOOLCHAIN == 'true'
       uses: HiGarfield/cachewrtbuild@main
@@ -138,41 +198,56 @@ jobs:
     - name: Install Feeds
       run: |
         cd $OPENWRT_PATH
+        # 如果是 LEDE 源码，调整 feeds.conf.default 配置
         if [ $SOURCE_REPO == 'lede' ]; then
           sed -i '/luci/s/^#//; /openwrt-23.05/s/^/#/' feeds.conf.default
         fi
+        # 更新并安装所有软件源
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
+    # 加载自定义配置
     - name: Load Custom Configuration
       run: |
+        # 移动文件到 OpenWrt 目录
         [ -e files ] && mv files $OPENWRT_PATH/files
         [ -e $CONFIG_FILE ] && mv $CONFIG_FILE $OPENWRT_PATH/.config
+        # 添加脚本执行权限
         chmod +x $GITHUB_WORKSPACE/scripts/*.sh
         chmod +x $DIY_SCRIPT
         cd $OPENWRT_PATH
+        # 执行自定义脚本
         $GITHUB_WORKSPACE/$DIY_SCRIPT
         $GITHUB_WORKSPACE/scripts/preset-clash-core.sh $CLASH_KERNEL
         $GITHUB_WORKSPACE/scripts/preset-terminal-tools.sh
 
+    # 下载依赖包
     - name: Download DL Package
       run: |
         cd $OPENWRT_PATH
         make defconfig
+        # 并行下载依赖包
         make download -j$(nproc)
+        # 检查并删除小于 1KB 的文件（可能是下载失败的文件）
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
 
+    # 编译固件
     - name: Compile Firmware
       id: compile
       run: |
         cd $OPENWRT_PATH
+        # 创建初始化设置目录
         mkdir -p files/etc/uci-defaults
         cp $GITHUB_WORKSPACE/scripts/init-settings.sh files/etc/uci-defaults/99-init-settings
+        # 显示编译线程数
         echo -e "$(nproc) thread compile"
+        # 尝试多线程编译，如果失败则降级到单线程
         make -j$(nproc) || make -j1 || make -j1 V=s
+        # 获取默认 IP 地址
         DEFAULT_IP=$(grep 'n) ipad' package/base-files/files/bin/config_generate | cut -d '"' -f2)
         echo "DEFAULT_IP=$DEFAULT_IP" >> $GITHUB_ENV
+        # 设置日期变量
         echo "DATE=$(date +"%Y-%m-%d %H:%M:%S")" >> $GITHUB_ENV
         echo "FILE_DATE=$(date +"%Y.%m.%d")" >> $GITHUB_ENV
 
@@ -198,37 +273,57 @@ jobs:
         KERNEL_VERSION_NAME: 6.1.y_6.6.y
         KERNEL_AUTO_LATEST: true
 
+    # 整理文件步骤
     - name: Organize Files
+      # 仅在打包成功时执行
       if: env.PACKAGED_STATUS == 'success'
       run: |
+        # 进入目标文件夹
         cd $OPENWRT_PATH/bin/targets/*/*
+        # 显示构建配置信息
         cat config.buildinfo
+        # 复制 OpenWrt 配置文件
         cp $OPENWRT_PATH/.config build.config
+        # 移动所有 ipk 包到 packages 目录
         mv -f $OPENWRT_PATH/bin/packages/*/*/*.ipk packages
+        # 将 packages 目录打包成 tar.gz
         tar -zcf packages.tar.gz packages
+        # 删除不需要的文件
         rm -rf packages u-boot-qemu* feeds.buildinfo version.buildinfo sha256sums *.manifest *.bin
+        # 设置固件路径环境变量
         echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
+        # 进入打包输出目录并清理不需要的文件
         cd $PACKAGED_OUTPUTPATH && rm -f *rootfs.tar.gz *.sha
+        # 如果是 immortalwrt 源码，重命名文件
         if [ $SOURCE_REPO == 'immortalwrt' ]; then
           rename 's/openwrt/${{ env.SOURCE_REPO }}/' *
         fi
 
+    # 将 OpenWrt 固件上传到 Artifacts
     - name: Upload OpenWrt To Artifact
       if: env.PACKAGED_STATUS == 'success' && env.UPLOAD_ARTIFACT == 'true'
       uses: haiibo/upload-artifact-as-is@master
       with:
         path: ${{ env.PACKAGED_OUTPUTPATH }}
 
+    # 将 OpenWrt 固件发布到 Release
     - name: Upload OpenWrt To Release
       if: env.PACKAGED_STATUS == 'success' && env.UPLOAD_RELEASE == 'true'
       uses: ncipollo/release-action@main
       with:
+        # Release 名称：日期 + 目标设备信息
         name: ${{ env.DATE }} for ${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}
+        # 允许更新已存在的 Release
         allowUpdates: true
+        # 移除旧的 Artifacts
         removeArtifacts: true
+        # Release 标签
         tag: ${{ env.RELEASE_TAG }}
+        # GitHub Token
         token: ${{ secrets.GITHUB_TOKEN }}
+        # 上传的文件
         artifacts: ${{ env.FIRMWARE_PATH }}/*,${{ env.PACKAGED_OUTPUTPATH }}/*
+        # Release 描述信息
         body: |
           **This is OpenWrt Firmware for ${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}**
           ### 📒 固件信息
