@@ -219,7 +219,6 @@ jobs:
         # 执行自定义脚本
         $GITHUB_WORKSPACE/$DIY_SCRIPT
         $GITHUB_WORKSPACE/scripts/preset-clash-core.sh $CLASH_KERNEL
-        $GITHUB_WORKSPACE/scripts/preset-terminal-tools.sh
 
     # 下载依赖包
     - name: Download DL Package
