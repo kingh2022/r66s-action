@@ -73,7 +73,7 @@ jobs:
         elif [ ${{ matrix.openwrt }} == 'immortalwrt' ]; then
           # ImmortalWrt 源码
           echo "REPO_URL=https://github.com/immortalwrt/immortalwrt" >> $GITHUB_ENV
-          echo "REPO_BRANCH=openwrt-24.10" >> $GITHUB_ENV
+          echo "REPO_BRANCH=openwrt-23.05" >> $GITHUB_ENV
           # 设置目标架构为 armsr
           echo -e "CONFIG_TARGET_armsr=y\nCONFIG_TARGET_armsr_armv8=y" >> $CONFIG_FILE
         fi
