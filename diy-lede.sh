@@ -114,5 +114,10 @@ sed -i 's|admin\\|admin\\/services\\|g' feeds/luci/applications/luci-app-dockerm
 # 取消对 samba4 的菜单调整
 # sed -i '/samba4/s/^/#/' package/lean/default-settings/files/zzz-default-settings
 
+echo >> feeds.conf.default
+echo 'src-git istore https://github.com/linkease/istore;main' >> feeds.conf.default
+./scripts/feeds update istore
+./scripts/feeds install -d y -p istore luci-app-store
+
 ./scripts/feeds update -a
 ./scripts/feeds install -a
